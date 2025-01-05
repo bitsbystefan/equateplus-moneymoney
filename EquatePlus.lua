@@ -1,16 +1,35 @@
 local url="https://www.equateplus.com"
---local url="http://localhost/test"
+
+function rnd()
+  return math.random(10000000,99999999)
+end
 
 local baseurl=""
 local reportOnce
-local Version="1.17"
+local Version="2.0"
 local CSRF_TOKEN=nil
-local csrfpId=nil
+local CSRF2_TOKEN=nil
 local connection
-local debugging=false
-local nosecrets=false
+local debugging=true
+local nosecrets=true
 local cummulate=false
 local html
+local cId="eqp."..rnd()
+
+function startsWith(String,Start)
+  return string.sub(String,1,string.len(Start))==Start
+end
+
+function split(inputstr, sep)
+  if sep == nil then
+     sep = "%s"
+  end
+  local t={}
+  for str in string.gmatch(inputstr, "([^"..sep.."]+)") do
+     table.insert(t, str)
+  end
+  return t
+end
 
 function connectWithCSRF(method, url, postContent, postContentType, headers)
   url=baseurl..url
@@ -19,46 +38,56 @@ function connectWithCSRF(method, url, postContent, postContentType, headers)
   local content
 
   if headers == nil then
-    headers={["X-Requested-With"]="XMLHttpRequest" }
+    headers={}
   end
+  headers["Accept"] = "*/*"
 
   if CSRF_TOKEN ~= nil then
-    headers['CSRF_TOKEN']=CSRF_TOKEN
+    headers['csrfpId']=CSRF_TOKEN
   else
     print("without CSRF_TOKEN")
   end
+  if CSRF2_TOKEN ~= nil then
+    headers["EQUATE-CSRF2-TOKEN-PARTICIPANT2"]=CSRF2_TOKEN
+  end
   if method == 'POST' then
     -- lprint(postContent)
-    if csrfpId ~= nil then
-      postContent=postContent.."&csrfpId="..csrfpId
+    if postContent == nil then
+      postContent=""
     end
   end
 
   content, charset, mimeType, filename, headers = connection:request(method, url, postContent, postContentType, headers)
   csrfpIdTemp=string.match(content,"\"csrfpId\" *, *\"([^\"]+)\"")
-  if csrfpIdTemp ~= '' then
-    csrfpId=csrfpIdTemp
+  if csrfpIdTemp ~= nil and csrfpIdTemp ~= '' then
+    CSRF_TOKEN=csrfpIdTemp
+  end
+  csrf2Temp=string.match(content,"\"equateCsrfToken2\":\"([^\"]+)\"")
+  if csrf2Temp ~= nil and csrf2Temp ~= '' then
+    CSRF2_TOKEN = csrf2Temp
   end
   if debugging then
-  -- tprint(headers)
-  -- lprint(content)
-  else
-  --print "no debug"
-  end
-  if headers["CSRF_TOKEN"] then
-    CSRF_TOKEN=headers["CSRF_TOKEN"]
-    -- print("new CSRF_TOKEN="..CSRF_TOKEN)
-    -- if debugging then print("new CSRF_TOKEN") end
+    tprint(headers)
+    -- lprint(content)
   end
   return content
 end
 
-WebBanking{version=Version, url=url,services    = {"EquatePlus","EquatePlus (cumulative)"},
-  description = "Depot von EquatePlus"}
+WebBanking{
+  version=Version,
+  url=url,
+  services={"EquatePlus"},
+  description = "Depot von EquatePlus"
+}
 
 
 function SupportsBank (protocol, bankCode)
-  return  protocol == ProtocolWebBanking and (bankCode == "EquatePlus"  or bankCode == "EquatePlus (cumulative)")
+  return  protocol == ProtocolWebBanking and (
+    bankCode == "EquatePlus" or
+    bankCode == "EquatePlus SE" or
+    bankCode == "EquatePlus (cumulative)" or
+    bankCode == "EquatePlus SE (cumulative)"
+  )
 end
 
 function lprint(text)
@@ -89,17 +118,13 @@ function InitializeSession2 (protocol, bankCode, step, credentials, interactive)
     -- Login.
     baseurl=""
     debugging=false
-    cummulate=false
+    cummulate=true
     CSRF_TOKEN=nil
-    csrfpId=nil
+    CSRF2_TOKEN=nil
     connection = Connection()
 
     username=credentials[1]
     password=credentials[2]
-
-    if bankCode == "EquatePlus (cumulative)" then
-      cummulate=true
-    end
 
     if string.sub(username,1,1) == '#' then
       print("Debugging, remove # char from username!")
@@ -112,7 +137,6 @@ function InitializeSession2 (protocol, bankCode, step, credentials, interactive)
       username=string.sub(username,2)
       nosecrets=true
     end
-
 
     -- get login page
     html = HTML(connectWithCSRF("GET",url))
@@ -132,43 +156,46 @@ function InitializeSession2 (protocol, bankCode, step, credentials, interactive)
     html:xpath("//*[@id='submitField']"):attr("value","Continue")
 
     content, charset, mimeType, filename, headers = connectWithCSRF(html:xpath("//*[@id='loginForm']"):submit())
-    html= HTML(content)
+    html = HTML(content)
 
-    -- 2.FA cuiMessages
-    if html:xpath("//*[@class='cuiMessageConfirmBorder']"):text() ~= "" then
-      print(html:xpath("//*[@class='cuiMessageConfirmBorder']"):text())
-      return {
-        title='Two-factor authentication',
-        challenge=html:xpath("//*[@class='cuiMessageConfirmBorder']"):text(),
-        label='Code'
-      }
-    else
-      -- base url
-      baseurl=connection:getBaseURL():match('^(.*/)')
-      print("baseurl="..baseurl)
-      -- no code = success
-      return nil
-    end
+    -- get first device id
+    json = JSON(connectWithCSRF("POST","https://www.equateplus.com/EquatePlusParticipant2/?login","isiwebuserid="..username.."&isiwebpasswd=null&result=null", "application/x-www-form-urlencoded")):dictionary()
+    target = json["dispatchTargets"][1]
+    
+    -- get qr code
+    json = JSON(connectWithCSRF("GET","https://www.equateplus.com/EquatePlusParticipant2/?login&o.dispatchTargetId.v="..target["id"].."&_cId="..cId.."&_rId="..rnd())):dictionary()
+    session_id = json["sessionId"]
+    qr_code = json["dispatcherInformation"]["response"]
+    
+    -- request authentication
+    return {
+      title=target["name"],
+      challenge=MM.imageResize(MM.base64decode(qr_code),240,240),
+    }
 
   else
-    -- enter code
-    html:xpath("//*[@id='otpCodeId']"):attr("value", credentials[1])
-    html:xpath("//*[@id='submitField']"):attr("value","verify")
-    content, charset, mimeType, filename, headers = connectWithCSRF(html:xpath("//*[@id='loginForm']"):submit())
-
-    -- base url
-    baseurl=connection:getBaseURL():match('^(.*/)')
-    print("baseurl="..baseurl)
-
-    if CSRF_TOKEN ~= nil  then
-      return nil
-    else
-      return "Wrong 2FA code!"
+    -- wait up to 30 seconds for verification
+    count = 0
+    while count < 30 do
+      json = JSON(connectWithCSRF("GET","https://www.equateplus.com/EquatePlusParticipant2/?login&o.fidoUafSessionId.v="..session_id.."&_cId="..cId.."&_rId="..rnd())):dictionary()
+      print(json["status"])
+      if json["status"] == "succeeded" then
+        -- complete login after verification
+        connectWithCSRF("POST","?login&_cId="..cId.."&_rId="..rnd(), "result=Continue", "application/x-www-form-urlencoded")
+        return nil
+      end
+      if json["status"] == "failed_retry_please" then
+        return "Operation failed: Please retry."
+      end
+      if json["status"] == "failed" then
+        return "Operation failed"
+      end
+      MM.sleep(1)
+      count = count + 1
     end
-
   end
 
-  return LoginFailed
+  return "Operation failed: Authentication was not confirmed"
 end
 
 function ListAccounts (knownAccounts)
@@ -194,13 +221,14 @@ function ListAccounts (knownAccounts)
 end
 
 function RefreshAccount (account, since)
-  local summary=JSON(connectWithCSRF("GET","services/planSummary/get")):dictionary()
+  local summary = JSON(connectWithCSRF("GET","https://www.equateplus.com/EquatePlusParticipant2/services/planSummary/get?_cId="..cId.."&_rId="..rnd())):dictionary()
   if debugging then tprint (summary) end
   local securities = {}
   reportOnce=true
+
   local status,err = pcall( function()
     for k,v in pairs(summary["entries"]) do
-      local details=JSON(connectWithCSRF("POST","services/planDetails/get","{\"$type\":\"EntityIdentifier\",\"id\":\""..v["id"].."\"}")):dictionary()
+      local details=JSON(connectWithCSRF("POST","https://www.equateplus.com/EquatePlusParticipant2/services/planDetails/get?_cId="..cId.."&_rId="..rnd(),"{\"$type\":\"EntityIdentifier\",\"id\":\""..v["id"].."\"}","application/json;charset=UTF-8")):dictionary()
       if debugging then tprint (details) end
       local status,err = pcall( function()
         for k,v in pairs(details["entries"]) do
@@ -313,10 +341,10 @@ function RefreshAccount (account, since)
 
                       }
                       if cummulate then
-                        -- VEHICLE_DESCRIPTION -> VEHICLE
-                        name='_'..name
                         if securities[name] == nil then
-                          security['sumPrice']=security['purchasePrice']*quantity
+                          if security['purchasePrice'] ~= nil then
+                            security['sumPrice']=security['purchasePrice']*quantity
+                          end
                           securities[name]=security
                           table.insert(securities,security)
                         else
@@ -341,7 +369,7 @@ function RefreshAccount (account, since)
       bugReport(status,err,v)
     end
   end) --pcall
-  bugReport(status,err,v)
+  bugReport(status,err,details)
   return {securities=securities}
 end
 
@@ -358,19 +386,5 @@ function EndSession ()
   -- Logout.
   connectWithCSRF("GET","services/participant/logout")
 end
-
--- SE Edition: Debug help - Thanks to https://gist.github.com/ripter/4270799
--- function dump(o)
---    if type(o) == 'table' then
---       local s = '{ '
---       for k,v in pairs(o) do
---         if type(k) ~= 'number' then k = '"'..k..'"' end
---         s = s .. '['..k..'] = ' .. dump(v) .. ','
---       end
---       return s .. '} '
---    else
---      return tostring(o)
---    end
--- end
 
 -- SIGNATURE: 
