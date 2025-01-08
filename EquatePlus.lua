@@ -161,12 +161,12 @@ function InitializeSession2 (protocol, bankCode, step, credentials, interactive)
     -- get first device id
     json = JSON(connectWithCSRF("POST","https://www.equateplus.com/EquatePlusParticipant2/?login","isiwebuserid="..username.."&isiwebpasswd=null&result=null", "application/x-www-form-urlencoded")):dictionary()
     target = json["dispatchTargets"][1]
-    
+
     -- get qr code
     json = JSON(connectWithCSRF("GET","https://www.equateplus.com/EquatePlusParticipant2/?login&o.dispatchTargetId.v="..target["id"].."&_cId="..cId.."&_rId="..rnd())):dictionary()
     session_id = json["sessionId"]
     qr_code = json["dispatcherInformation"]["response"]
-    
+
     -- request authentication
     return {
       title=target["name"],
@@ -387,4 +387,4 @@ function EndSession ()
   connectWithCSRF("GET","services/participant/logout")
 end
 
--- SIGNATURE: 
+-- SIGNATURE: MCwCFDWF76Fxoab2ziwGpvId/BiBF9fkAhQlegaxKqJWS5hxCEOmxX2PBw1C4g==
