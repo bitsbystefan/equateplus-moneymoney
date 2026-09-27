@@ -1,10 +1,11 @@
-local url="https://www.equateplus.com"
+local url="https://www.equateplus.com/EquatePlusParticipant2/?login"
 --local url="http://localhost/test"
 
 local baseurl=""
 local reportOnce
-local Version="1.16"
+local Version="1.17"
 local CSRF_TOKEN=nil
+local CSRF2_TOKEN=nil
 local csrfpId=nil
 local connection
 local debugging=false
@@ -12,45 +13,73 @@ local nosecrets=false
 local cummulate=false
 local html
 
+local dcHost="https://www.equateplus.com"
+local cId="eqp."..tostring(math.random(10000000,99999999))
+local session_id=nil
+local awaitingOtp=false
+local otpPageHtml=nil
+
+local function randomId()
+  return tostring(math.random(10000000,99999999))
+end
+
+local function urlEncode(value)
+  value=tostring(value or "")
+  return (value:gsub("([^%w%-%.%_%~ ])", function(c)
+    return string.format("%%%02X", string.byte(c))
+  end):gsub(" ", "+"))
+end
+
+local function normalizeUrl(value)
+  value=value or ""
+  if string.match(value,"^https?://") then return value end
+  if string.sub(value,1,1)=="?" then return dcHost.."/EquatePlusParticipant2/"..value end
+  if string.sub(value,1,1)=="/" then return dcHost..value end
+  if baseurl=="" then return dcHost.."/"..value end
+  return baseurl..value
+end
+
 function connectWithCSRF(method, url, postContent, postContentType, headers)
-  url=baseurl..url
-  -- print("baseurl="..baseurl)
-  postContentType=postContentType or "application/json"
-  local content
-
-  if headers == nil then
-    headers={["X-Requested-With"]="XMLHttpRequest" }
-  end
-
-  if CSRF_TOKEN ~= nil then
-    headers['CSRF_TOKEN']=CSRF_TOKEN
+  local requestUrl, requestMethod, body, contentType, requestHeaders
+  if type(method)~="string" then
+    local req=method or {}
+    requestUrl=normalizeUrl(req.url or url)
+    requestMethod=req.method or "GET"
+    body=req.postContent or req.body or postContent or ""
+    contentType=req.postContentType or req.mimeType or postContentType or "application/x-www-form-urlencoded"
+    requestHeaders={}
+    for k,v in pairs(req.headers or {}) do requestHeaders[k]=v end
+    for k,v in pairs(headers or {}) do requestHeaders[k]=v end
   else
-    print("without CSRF_TOKEN")
+    requestUrl=normalizeUrl(url)
+    requestMethod=method
+    body=postContent or ""
+    contentType=postContentType or "application/json"
+    requestHeaders={}
+    for k,v in pairs(headers or {}) do requestHeaders[k]=v end
   end
-  if method == 'POST' then
-    -- lprint(postContent)
-    if csrfpId ~= nil then
-      postContent=postContent.."&csrfpId="..csrfpId
-    end
+  requestHeaders["Accept"]=requestHeaders["Accept"] or "*/*"
+  if string.find(requestUrl,"?login",1,true) then
+    requestHeaders["Accept"]="application/json, text/plain, */*"
+    requestHeaders["X-Requested-With"]=requestHeaders["X-Requested-With"] or "XMLHttpRequest"
+    requestHeaders["Referer"]=requestHeaders["Referer"] or (dcHost.."/eqlogin/")
+  elseif string.find(requestUrl,"/EquatePlusParticipant2/services/",1,true) then
+    requestHeaders["Referer"]=requestHeaders["Referer"] or (dcHost.."/EquatePlusParticipant2/")
   end
-
-  content, charset, mimeType, filename, headers = connection:request(method, url, postContent, postContentType, headers)
-  csrfpIdTemp=string.match(content,"\"csrfpId\" *, *\"([^\"]+)\"")
-  if csrfpIdTemp ~= '' then
-    csrfpId=csrfpIdTemp
-  end
-  if debugging then
-  -- tprint(headers)
-  -- lprint(content)
-  else
-  --print "no debug"
-  end
-  if headers["CSRF_TOKEN"] then
-    CSRF_TOKEN=headers["CSRF_TOKEN"]
-    -- print("new CSRF_TOKEN="..CSRF_TOKEN)
-    -- if debugging then print("new CSRF_TOKEN") end
-  end
-  return content
+  if CSRF_TOKEN then requestHeaders["csrfpId"]=CSRF_TOKEN end
+  if CSRF2_TOKEN then requestHeaders["EQUATE-CSRF2-TOKEN-PARTICIPANT2"]=CSRF2_TOKEN end
+  local content, charset, mimeType, filename, responseHeaders = connection:request(
+    requestMethod, requestUrl, body, contentType, requestHeaders)
+  local response=content or ""
+  local token=string.match(response,'"csrfpId"%s*:%s*"([^"]+)"')
+  if not token then token=string.match(response,'csrfRegisterAjax%(%s*"csrfpId"%s*,%s*"([^"]+)"') end
+  if not token then token=string.match(response,'csrfModifyLinks%(%s*"csrfpId"%s*,%s*"([^"]+)"') end
+  if token and token~="" then CSRF_TOKEN=token; csrfpId=token end
+  local token2=string.match(response, "['\"]equateCsrfToken2['\"]%s*:%s*['\"]([^'\"]+)['\"]")
+  if not token2 then token2=string.match(response, "name=['\"]EQUATE%-CSRF2%-TOKEN%-PARTICIPANT2['\"]%s+value=['\"]([^'\"]+)['\"]") end
+  if token2 and token2~="" then CSRF2_TOKEN=token2 end
+  if responseHeaders and responseHeaders["CSRF_TOKEN"] then CSRF_TOKEN=responseHeaders["CSRF_TOKEN"] end
+  return response
 end
 
 WebBanking{version=Version, url=url,services    = {"EquatePlus SE","EquatePlus SE (cumulative)"},
@@ -84,91 +113,140 @@ function tprint (tbl, indent)
 end
 
 function InitializeSession2 (protocol, bankCode, step, credentials, interactive)
-
   if step==1 then
-    -- Login.
     baseurl=""
     debugging=false
-    cummulate=false
+    nosecrets=false
+    cummulate=(bankCode=="EquatePlus SE (cumulative)")
     CSRF_TOKEN=nil
+    CSRF2_TOKEN=nil
     csrfpId=nil
-    connection = Connection()
+    session_id=nil
+    awaitingOtp=false
+    otpPageHtml=nil
+    cId="eqp."..randomId()
+    dcHost="https://www.equateplus.com"
+    connection=Connection()
 
-    username=credentials[1]
-    password=credentials[2]
-
-    if bankCode == "EquatePlus SE (cumulative)" then
-      cummulate=true
-    end
-
-    if string.sub(username,1,1) == '#' then
+    local username=credentials[1]
+    local password=credentials[2]
+    if string.sub(username,1,1)=="#" then
       print("Debugging, remove # char from username!")
       username=string.sub(username,2)
       debugging=true
     end
-
-    if string.sub(username,1,1) == '#' then
+    if string.sub(username,1,1)=="#" then
       print("Debugging, remove # chars from username!")
       username=string.sub(username,2)
       nosecrets=true
     end
 
+    local function hasLoginForm(doc)
+      return doc:xpath("//*[@id='loginForm']"):length()>0 or
+        doc:xpath("//input[@name='isiwebuserid']"):length()>0
+    end
+    local function loadLogin(target)
+      return HTML(connectWithCSRF("GET",target))
+    end
 
-    -- get login page
-    html = HTML(connectWithCSRF("GET",url))
-    if html:xpath("//*[@id='loginForm']"):text() == '' then return "EquatePlus plugin error: No login mask found!" end
-
-    -- first login stage
-    -- print("login first stage")
-    html:xpath("//*[@id='eqUserId']"):attr("value", username)
-    html:xpath("//*[@id='submitField']"):attr("value","Continue Login")
-    html= HTML(connectWithCSRF(html:xpath("//*[@id='loginForm']"):submit()))
-    if html:xpath("//*[@id='loginForm']"):text() == '' then return "EquatePlus plugin error: No login mask found!" end
-
-    -- second login stage
-    -- print("login second stage")
-    html:xpath("//*[@id='eqUserId']"):attr("value", username)
-    html:xpath("//*[@id='eqPwdId']"):attr("value", password)
-    html:xpath("//*[@id='submitField']"):attr("value","Continue")
-
-    content, charset, mimeType, filename, headers = connectWithCSRF(html:xpath("//*[@id='loginForm']"):submit())
-    html= HTML(content)
-
-    -- 2.FA cuiMessages
-    if html:xpath("//*[@class='cuiMessageConfirmBorder']"):text() ~= "" then
-      print(html:xpath("//*[@class='cuiMessageConfirmBorder']"):text())
-      return {
-        title='Two-factor authentication',
-        challenge=html:xpath("//*[@class='cuiMessageConfirmBorder']"):text(),
-        label='Code'
+    html=loadLogin(url)
+    if not hasLoginForm(html) then
+      local candidates={
+        "https://www.emea.equateplus.com/EquatePlusParticipant2/?login",
+        "https://www.na.equateplus.com/EquatePlusParticipant2/?login"
       }
-    else
-      -- base url
-      baseurl=connection:getBaseURL():match('^(.*/)')
-      print("baseurl="..baseurl)
-      -- no code = success
-      return nil
+      for _,target in ipairs(candidates) do
+        dcHost=string.match(target,"^(https?://[^/]+)") or dcHost
+        local candidate=loadLogin(target)
+        if hasLoginForm(candidate) then html=candidate; break end
+      end
+    end
+    if not hasLoginForm(html) then return "EquatePlus plugin error: No login mask found!" end
+
+    html:xpath("//*[@id='eqUserId']"):attr("value",username)
+    html:xpath("//*[@id='submitField']"):attr("value","Continue Login")
+    html=HTML(connectWithCSRF(html:xpath("//*[@id='loginForm']"):submit()))
+    if not hasLoginForm(html) then return "EquatePlus plugin error: No login mask found!" end
+
+    local postBody="isiwebuserid="..urlEncode(username)..
+      "&isiwebpasswd="..urlEncode(password).."&result=Continue"
+    if CSRF_TOKEN then postBody=postBody.."&csrfpId="..urlEncode(CSRF_TOKEN) end
+    local content=connectWithCSRF("POST",dcHost.."/EquatePlusParticipant2/?login",
+      postBody,"application/x-www-form-urlencoded")
+    html=HTML(content)
+
+    if string.find(content,'id="otpCodeId"',1,true) or
+       string.find(content,'class="otpCodeSms"',1,true) or
+       string.find(content,"Security Step Code",1,true) then
+      awaitingOtp=true
+      otpPageHtml=html
+      return {title="Security Code", challenge="Please enter the SMS code.", label="Code", password=true}
     end
 
-  else
-    -- enter code
-    html:xpath("//*[@id='otpCodeId']"):attr("value", credentials[1])
-    html:xpath("//*[@id='submitField']"):attr("value","verify")
-    content, charset, mimeType, filename, headers = connectWithCSRF(html:xpath("//*[@id='loginForm']"):submit())
-
-    -- base url
-    baseurl=connection:getBaseURL():match('^(.*/)')
-    print("baseurl="..baseurl)
-
-    if CSRF_TOKEN ~= nil  then
+    local response=connectWithCSRF("POST", "?login&_cId="..cId.."&_rId="..randomId(),
+      "isiwebuserid="..urlEncode(username).."&isiwebpasswd=null&result=null",
+      "application/x-www-form-urlencoded")
+    local ok, auth=pcall(function() return JSON(response):dictionary() end)
+    if not ok or not auth or not auth["dispatchTargets"] or not auth["dispatchTargets"][1] then
+      -- Some legacy accounts finish directly after the password form.
+      if hasLoginForm(html) then return "EquatePlus: Unbekannter oder nicht unterstützter Login-Schritt." end
+      baseurl=dcHost.."/EquatePlusParticipant2/"
       return nil
-    else
-      return "Wrong 2FA code!"
     end
-
+    local target=auth["dispatchTargets"][1]
+    local qr=JSON(connectWithCSRF("GET", "?login&o.dispatchTargetId.v="..urlEncode(target["id"])..
+      "&_cId="..cId.."&_rId="..randomId())):dictionary()
+    if not qr or not qr["sessionId"] or not qr["dispatcherInformation"] then
+      return "EquatePlus: QR/FIDO-Anmeldeaufforderung konnte nicht geladen werden."
+    end
+    session_id=qr["sessionId"]
+    baseurl=dcHost.."/EquatePlusParticipant2/"
+    return {title=target["name"] or "EquateAccess App", challenge=qr["dispatcherInformation"]["response"],
+      poll=true, tanMethod={name="QR-Code"}}
   end
 
-  return LoginFailed
+  if awaitingOtp and otpPageHtml then
+    local otp=credentials and (credentials[1] or credentials["otp"] or credentials["tan"])
+    if not otp or otp=="" then
+      return {title="Security Code", challenge="Please enter the SMS code.", label="Code", password=true}
+    end
+    otpPageHtml:xpath("//*[@id='otpCodeId']"):attr("value",otp)
+    otpPageHtml:xpath("//*[@id='submitField']"):attr("value","verify")
+    local content=connectWithCSRF(otpPageHtml:xpath("//*[@id='loginForm']"):submit())
+    local after=HTML(content)
+    local errorText=after:xpath("//*[@id='OtpErrorMsg']"):text()
+    if errorText=="" then errorText=after:xpath("//*[@id='ErrorMsg']"):text() end
+    if errorText~="" or string.find(content,'id="otpCodeId"',1,true) then
+      return "EquatePlus: "..(errorText~="" and errorText or "SMS-Code wurde nicht bestätigt.")
+    end
+    awaitingOtp=false
+    otpPageHtml=nil
+    connectWithCSRF("POST","?login&_cId="..cId.."&_rId="..randomId(),"result=Continue","application/x-www-form-urlencoded")
+    connectWithCSRF("GET","/EquatePlusParticipant2/")
+    baseurl=dcHost.."/EquatePlusParticipant2/"
+    return nil
+  end
+
+  if session_id then
+    for _=1,30 do
+      local status=JSON(connectWithCSRF("GET", "?login&o.fidoUafSessionId.v="..urlEncode(session_id)..
+        "&_cId="..cId.."&_rId="..randomId())):dictionary()
+      if status and status["status"]=="succeeded" then
+        connectWithCSRF("POST","?login&_cId="..cId.."&_rId="..randomId(),"result=Continue","application/x-www-form-urlencoded")
+        connectWithCSRF("GET","/EquatePlusParticipant2/")
+        baseurl=dcHost.."/EquatePlusParticipant2/"
+        session_id=nil
+        return nil
+      elseif status and status["status"]=="failed_retry_please" then
+        return "EquatePlus: Bitte Anmeldung erneut starten."
+      elseif status and status["status"]=="failed" then
+        return "EquatePlus: App-Authentifizierung fehlgeschlagen."
+      end
+      MM.sleep(1)
+    end
+    return "EquatePlus: Bestätigung in der App wurde nicht rechtzeitig erkannt."
+  end
+  return "EquatePlus: Anmeldestatus ist verloren gegangen; bitte erneut anmelden."
 end
 
 function ListAccounts (knownAccounts)
