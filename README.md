@@ -5,7 +5,7 @@ This is a pure personal and private project and has absolutely no relationship t
 
 It may work or not work for other depots.
 
-~~Released version is now signed and will run in released versions of the MoneyMoney App.~~ **Outdated:** The current modified script is no longer officially signed.
+~~Released version is now signed and will run in released versions of the MoneyMoney App.~~ **Outdated:** The current modified script is no longer officially signed. But now supports QR code/EquateAccess app login.
 
 ### Updated script and digital signature
 
