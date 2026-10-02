@@ -46,8 +46,6 @@ The plugin supports the EquatePlus login methods offered for the account:
 
 The authentication flow uses EquatePlus's `EquatePlusParticipant2` login and CSRF/session handling. EquatePlus determines which authentication method is offered.
 
-Portfolio and price parsing remain specific to the SE edition of this plugin.
-
 ## Credits 
 
 Forked from Michael-Beutling as my specific depot requires different mapping.
