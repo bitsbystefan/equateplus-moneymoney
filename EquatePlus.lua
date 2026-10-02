@@ -1,5 +1,4 @@
 local url="https://www.equateplus.com/EquatePlusParticipant2/?login"
---local url="http://localhost/test"
 
 local baseurl=""
 local reportOnce
@@ -386,6 +385,57 @@ function EndSession ()
   connectWithCSRF("GET","services/participant/logout")
 end
 
+-- Download account statements from the EquatePlus document library.
+-- This is intentionally independent of the portfolio parsing in RefreshAccount.
+function FetchStatements (accounts, knownIdentifiers)
+  local statements = {}
+  knownIdentifiers = knownIdentifiers or {}
+
+  local libraryContent = connectWithCSRF("POST", "services/documents/library",
+    "{\"$type\":\"Object\"}", "application/json;charset=UTF-8")
+  if string.find(libraryContent or "", 'id="loginForm"', 1, true) or
+     string.find(libraryContent or "", 'id="eqUserId"', 1, true) then
+    print("EquatePlus: FetchStatements — session expired, got login page.")
+    return {statements=statements}
+  end
+
+  local ok, library = pcall(function() return JSON(libraryContent):dictionary() end)
+  if not ok or not library or type(library["documents"]) ~= "table" then
+    print("EquatePlus: documents/library has no 'documents' field — API may have changed.")
+    return {statements=statements}
+  end
+
+  for _, document in pairs(library["documents"]) do
+    if document["id"] and not knownIdentifiers[document["id"]] then
+      local creationDate
+      if document["date"] then
+        local year, month, day = document["date"]:match("^(%d%d%d%d)%-(%d%d)%-(%d%d)")
+        if year then creationDate = os.time({year=year, month=month, day=day}) end
+      end
+      local name = document["description"] or "EquatePlus statement"
+      local filename = name
+      if creationDate then filename = name .. " (" .. MM.localizeDate(creationDate) .. ")" end
+      filename = filename:gsub("[/\\\\]", "-") .. ".pdf"
+
+      local statement = {
+        name=name,
+        identifier=document["id"],
+        creationDate=creationDate,
+        filename=filename
+      }
+      statement.pdf = connectWithCSRF("GET", "services/statements/download?documentId=" ..
+        urlEncode(document["id"]) .. "&downloadType=inline&source=LIBRARY")
+      if statement.pdf and statement.pdf ~= "" and
+         not string.find(statement.pdf, '"$type":"TechnicalError"', 1, true) then
+        table.insert(statements, statement)
+      else
+        print("EquatePlus: error downloading statement " .. filename)
+      end
+    end
+  end
+  return {statements=statements}
+end
+
 -- SE Edition: Debug help - Thanks to https://gist.github.com/ripter/4270799
 -- function dump(o)
 --    if type(o) == 'table' then
@@ -399,5 +449,3 @@ end
 --      return tostring(o)
 --    end
 -- end
-
--- SIGNATURE: MCwCFARAT5ioTeEaVHLeUj4+W1EAuKY2AhRVC++EoNf0AWvI1zDOPEwiTU9jMw==
