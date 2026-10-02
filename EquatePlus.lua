@@ -1,3 +1,23 @@
+-- EquatePlus SE Extension for MoneyMoney
+--
+-- Synchronizes SE employee share plan positions and downloads PDF statements
+-- from the EquatePlus document library.
+--
+-- Requirements: MoneyMoney 2.4.72 or later; an active EquatePlus account.
+-- Authentication: EquateAccess app (QR/FIDO) or SMS one-time code (OTP),
+-- depending on the methods enabled for the account.
+-- Account modes: individual positions or cumulative positions by security.
+--
+-- Install as EquatePlus.lua in MoneyMoney's Extensions folder. This modified
+-- script is unsigned; MoneyMoney may require signature verification to be
+-- disabled to load it.
+--
+-- Independent personal project; not affiliated with EquatePlus, MoneyMoney,
+-- or any employer. SE edition forked from Michael-Beutling's extension.
+-- QR/FIDO, OTP, and statement download code adapted from neatc0der's fork,
+-- which credits neatc0der and DerSchiman. Changes for this edition are under
+-- the MIT License; original portions retain their upstream terms.
+
 local url="https://www.equateplus.com/EquatePlusParticipant2/?login"
 
 local baseurl=""
