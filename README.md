@@ -8,7 +8,7 @@ This is a pure personal and private project and has absolutely no relationship t
 
 ### Features 
 
-* Portfolio synchronisation with Money Money
+* Portfolio synchronisation with MoneyMoney
 * PDF statement download
 * EquateAccess App support 
 * SMS code (OTP) support 
