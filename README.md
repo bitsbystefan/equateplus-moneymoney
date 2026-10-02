@@ -1,7 +1,6 @@
 # EquatePlus - SE Edition - Extension for MoneyMoney App
 
-A quick plugin for Equate Plus Employee Plans, Edition for SE employees.
-
+A quick plugin for Equate Plus Employee Share Plans - Edition for SE employees.
 Equate Plus plans are customer company specific. 
 It may work or not work for other employee share plans.
 
@@ -16,8 +15,8 @@ This is a pure personal and private project and has absolutely no relationship t
 
 ### Account types 
 
-* EquatePlus SE - Individual positions (SE plan)
-* EquatePlus SE (cumulative) - Aggregated positions (SE plan)
+* EquatePlus SE: Individual positions (SE plan)
+* EquatePlus SE (cumulative): Aggregated positions (SE plan)
 
 ### Setup
 
@@ -35,7 +34,7 @@ Changes to this script invalidate its official digital signature. Until a new si
 
 ## Requirements
 
-* MoneyMoney 2.4.72 or later. The QR/FIDO login uses MoneyMoney's native QR challenge and polling support. MoneyMoney 2.5.3 satisfies this requirement.
+* MoneyMoney 2.4.72 or later. The QR/FIDO login uses MoneyMoney's native QR challenge and polling support. 
 
 ## Authentication
 
