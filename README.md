@@ -1,4 +1,4 @@
-# EquatePlus SE Edition plugin for MoneyMoney
+# EquatePlus - SE Edition - Extension for MoneyMoney App
 
 A quick plugin for Equate Plus Employee Plans, Edition for SE employees.
 
